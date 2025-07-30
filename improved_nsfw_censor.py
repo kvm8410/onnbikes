@@ -20,6 +20,14 @@ TARGET_LABELS = {
     "EXPOSED_ANUS", "COVERED_GENITALIA_F", "COVERED_GENITALIA_M"
 }
 
+# All possible NudeNet labels for reference
+ALL_NUDENET_LABELS = {
+    "EXPOSED_ANUS", "EXPOSED_ARMPITS", "EXPOSED_BELLY", "EXPOSED_BUTTOCKS",
+    "EXPOSED_BREAST_F", "EXPOSED_BREAST_M", "EXPOSED_FEET", "EXPOSED_GENITALIA_F",
+    "EXPOSED_GENITALIA_M", "COVERED_GENITALIA_F", "COVERED_GENITALIA_M",
+    "COVERED_BREAST_F", "COVERED_BREAST_M", "COVERED_BUTTOCKS", "FACE_F", "FACE_M"
+}
+
 # Censoring methods
 CENSOR_METHOD = "blur"  # Options: "blur", "pixelate", "black_bar", "crop"
 BLUR_INTENSITY = 51  # Must be odd number
@@ -96,19 +104,31 @@ class NSFWCensor:
             rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             results = self.detector.detect(rgb_img)
             
+            logger.info(f"NudeNet detected {len(results)} total regions")
+            
             valid_boxes = []
-            for detection in results:
+            for i, detection in enumerate(results):
+                logger.info(f"Detection {i+1}: {detection}")
+                
                 if len(detection) >= 6:
                     x1, y1, x2, y2, confidence, label = detection[:6]
                     
                     # Convert coordinates to integers
                     x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
                     
+                    logger.info(f"  Label: {label}, Confidence: {confidence:.3f}, Target?: {label in TARGET_LABELS}")
+                    
                     # Filter by confidence and target labels
                     if confidence > DETECTION_CONFIDENCE and label in TARGET_LABELS:
                         valid_boxes.append((x1, y1, x2, y2, label, confidence))
-                        logger.info(f"Detected {label} with confidence {confidence:.3f} at ({x1},{y1},{x2},{y2})")
+                        logger.info(f"✅ Accepted: {label} with confidence {confidence:.3f} at ({x1},{y1},{x2},{y2})")
+                    else:
+                        reason = "low confidence" if confidence <= DETECTION_CONFIDENCE else "not target label"
+                        logger.info(f"❌ Rejected: {label} ({reason})")
+                else:
+                    logger.warning(f"  Malformed detection: {detection}")
             
+            logger.info(f"Final valid detections: {len(valid_boxes)}")
             return valid_boxes
         except Exception as e:
             logger.error(f"Error in detection: {e}")
@@ -274,8 +294,10 @@ class NSFWCensor:
         # Process image
         censored_img = self.censor_image(img, method)
         
-        # Save result
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        # Save result - only create directory if output_path contains a directory
+        output_dir = os.path.dirname(output_path)
+        if output_dir:  # Only create directory if it's not empty
+            os.makedirs(output_dir, exist_ok=True)
         cv2.imwrite(output_path, censored_img)
         logger.info(f"Censored image saved: {output_path}")
     
